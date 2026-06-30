@@ -1,6 +1,8 @@
+import hashlib
 import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from app.config import settings
 from app.models.schemas import (
     BatchUploadResponse,
     DeleteResponse,
@@ -18,6 +20,19 @@ from app.dependencies import get_provider, get_vector_store
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_PDF_MAGIC = b"%PDF"
+
+
+def _validate_upload(filename: str, data: bytes) -> str | None:
+    """Gibt eine Fehlermeldung zurück wenn die Datei ungültig ist, sonst None."""
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    if len(data) > max_bytes:
+        mb = len(data) / 1024 / 1024
+        return f"{filename}: Datei zu groß ({mb:.1f} MB, max {settings.max_upload_size_mb} MB)"
+    if not data.startswith(_PDF_MAGIC):
+        return f"{filename}: keine gültige PDF-Datei (falscher Dateiheader)"
+    return None
+
 
 async def _ingest_pdfs(
     files: list[UploadFile],
@@ -34,6 +49,27 @@ async def _ingest_pdfs(
             continue
         try:
             pdf_bytes = await file.read()
+
+            error = _validate_upload(file.filename, pdf_bytes)
+            if error:
+                failed.append(error)
+                continue
+
+            content_hash = hashlib.sha256(pdf_bytes).hexdigest()
+            existing = await store.find_by_hash(content_hash)
+            if existing:
+                logger.info(f"{file.filename}: Duplikat erkannt (bereits als '{existing['filename']}' indexiert)")
+                uploaded.append(UploadedDocument(
+                    id=existing["doc_id"],
+                    type=doc_type,
+                    filename=existing["filename"],
+                    text_length=existing["text_length"],
+                    ocr_used=False,
+                    status="duplicate",
+                    duplicate_of=existing["doc_id"],
+                ))
+                continue
+
             text, ocr_used = extract_text_from_pdf(pdf_bytes)
             if not text.strip():
                 failed.append(f"{file.filename}: kein Text extrahierbar (auch nach OCR)")
@@ -47,6 +83,7 @@ async def _ingest_pdfs(
                 filename=file.filename,
                 text=text,
                 vector=vector,
+                content_hash=content_hash,
             )
             if ocr_used:
                 logger.info(f"{file.filename}: OCR wurde für mindestens eine Seite verwendet")

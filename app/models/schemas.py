@@ -43,7 +43,11 @@ class UploadedDocument(BaseModel):
     filename: str = Field(examples=["lebenslauf_max_mustermann.pdf"])
     text_length: int = Field(description="Anzahl extrahierter Zeichen", examples=[3240])
     ocr_used: bool = Field(description="True wenn Tesseract-OCR für Scan-Seiten eingesetzt wurde")
-    status: str = Field(default="indexed", examples=["indexed"])
+    status: str = Field(default="indexed", description="'indexed', 'duplicate'", examples=["indexed"])
+    duplicate_of: str | None = Field(
+        default=None,
+        description="ID des bereits indexierten Dokuments — gesetzt wenn status='duplicate'",
+    )
 
     model_config = {
         "json_schema_extra": {

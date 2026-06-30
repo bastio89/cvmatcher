@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
 
+    ollama_timeout: int | None = None   # None = kein Timeout (für Overnight-Jobs)
+    ollama_embed_timeout: int = 120     # Embeddings sind schnell, 2 Min reicht
+
+    max_upload_size_mb: int = 50        # Max. PDF-Größe pro Upload in MB
+    batch_concurrency: int = 3          # Parallele Batch-Match-Anfragen
+
     log_level: str = "INFO"
 
 

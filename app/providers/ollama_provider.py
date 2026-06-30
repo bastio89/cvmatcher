@@ -46,7 +46,7 @@ class OllamaProvider(AIProvider):
         return 768
 
     async def embed(self, text: str) -> list[float]:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=settings.ollama_embed_timeout) as client:
             response = await client.post(
                 f"{self._host}/api/embeddings",
                 json={"model": self._embed_model, "prompt": text},
@@ -70,7 +70,7 @@ class OllamaProvider(AIProvider):
             target_text=target_text[:3000],
         )
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=settings.ollama_timeout) as client:
             response = await client.post(
                 f"{self._host}/api/generate",
                 json={"model": self._llm_model, "prompt": prompt, "stream": False},
@@ -78,20 +78,13 @@ class OllamaProvider(AIProvider):
             response.raise_for_status()
             raw = response.json()["response"].strip()
 
+        # Extrahiere JSON falls das Modell Markdown-Blöcke ausgibt
+        if "```" in raw:
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+
         try:
-            # Extrahiere JSON falls das Modell Markdown-Blöcke ausgibt
-            if "```" in raw:
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
             return json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning("LLM returned non-JSON response, using fallback")
-            return {
-                "overall_score": 50,
-                "overall_label": "Moderate",
-                "summary": raw[:500],
-                "skills": {"matching": [], "missing": [], "bonus": []},
-                "strengths": [],
-                "gaps": [],
-            }
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"LLM hat kein valides JSON zurückgegeben: {raw[:200]}") from exc

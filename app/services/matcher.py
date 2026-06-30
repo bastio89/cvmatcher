@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import uuid
+from app.config import settings
 from app.models.schemas import (
     BatchMatchEntry,
     BatchMatchResponse,
@@ -119,42 +121,42 @@ class MatcherService:
         if scoring is None:
             scoring = ScoringWeights()
 
-        entries: list[BatchMatchEntry] = []
+        sem = asyncio.Semaphore(settings.batch_concurrency)
 
-        for doc_id in document_ids:
-            try:
-                source = await self._store.get_by_doc_id(doc_id)
-                if source is None:
-                    entries.append(BatchMatchEntry(
+        async def _process_one(doc_id: str) -> BatchMatchEntry:
+            async with sem:
+                try:
+                    source = await self._store.get_by_doc_id(doc_id)
+                    if source is None:
+                        return BatchMatchEntry(
+                            document_id=doc_id,
+                            filename="",
+                            status="error",
+                            error=f"Dokument '{doc_id}' nicht gefunden",
+                        )
+                    match_result = await self.match(
+                        document_id=doc_id,
+                        document_type=document_type,
+                        top_k=top_k,
+                        include_analysis=include_analysis,
+                        scoring=scoring,
+                    )
+                    return BatchMatchEntry(
+                        document_id=doc_id,
+                        filename=source["filename"],
+                        status="ok",
+                        match=match_result,
+                    )
+                except Exception as e:
+                    logger.error(f"Batch-Match fehlgeschlagen für {doc_id}: {e}")
+                    return BatchMatchEntry(
                         document_id=doc_id,
                         filename="",
                         status="error",
-                        error=f"Dokument '{doc_id}' nicht gefunden",
-                    ))
-                    continue
+                        error=str(e),
+                    )
 
-                match_result = await self.match(
-                    document_id=doc_id,
-                    document_type=document_type,
-                    top_k=top_k,
-                    include_analysis=include_analysis,
-                    scoring=scoring,
-                )
-                entries.append(BatchMatchEntry(
-                    document_id=doc_id,
-                    filename=source["filename"],
-                    status="ok",
-                    match=match_result,
-                ))
-            except Exception as e:
-                logger.error(f"Batch-Match fehlgeschlagen für {doc_id}: {e}")
-                entries.append(BatchMatchEntry(
-                    document_id=doc_id,
-                    filename="",
-                    status="error",
-                    error=str(e),
-                ))
-
+        entries = list(await asyncio.gather(*[_process_one(doc_id) for doc_id in document_ids]))
         successful = sum(1 for e in entries if e.status == "ok")
         return BatchMatchResponse(
             document_type=document_type,

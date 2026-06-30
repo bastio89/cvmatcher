@@ -31,7 +31,15 @@ class VectorStore:
             )
             logger.info(f"Qdrant-Collection '{COLLECTION_NAME}' erstellt (dim={self._dimensions})")
 
-    async def upsert(self, doc_id: str, doc_type: str, filename: str, text: str, vector: list[float]) -> str:
+    async def upsert(
+        self,
+        doc_id: str,
+        doc_type: str,
+        filename: str,
+        text: str,
+        vector: list[float],
+        content_hash: str | None = None,
+    ) -> str:
         point = PointStruct(
             id=str(uuid.uuid5(uuid.NAMESPACE_URL, doc_id)),
             vector=vector,
@@ -40,10 +48,32 @@ class VectorStore:
                 "doc_type": doc_type,
                 "filename": filename,
                 "text": text,
+                "content_hash": content_hash,
             },
         )
         await self._client.upsert(collection_name=COLLECTION_NAME, points=[point])
         return doc_id
+
+    async def find_by_hash(self, content_hash: str) -> dict | None:
+        """Gibt das erste Dokument mit diesem SHA-256-Hash zurück, oder None wenn nicht vorhanden."""
+        points, _ = await self._client.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=Filter(
+                must=[FieldCondition(key="content_hash", match=MatchValue(value=content_hash))]
+            ),
+            limit=1,
+            with_payload=True,
+            with_vectors=False,
+        )
+        if not points:
+            return None
+        p = points[0]
+        return {
+            "doc_id": p.payload["doc_id"],
+            "doc_type": p.payload["doc_type"],
+            "filename": p.payload["filename"],
+            "text_length": len(p.payload.get("text", "")),
+        }
 
     async def search(self, query_vector: list[float], doc_type: str, top_k: int = 10) -> list[dict]:
         results = await self._client.search(
