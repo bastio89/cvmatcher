@@ -24,12 +24,29 @@ class VectorStore:
     async def ensure_collection(self):
         collections = await self._client.get_collections()
         names = [c.name for c in collections.collections]
-        if COLLECTION_NAME not in names:
-            await self._client.create_collection(
-                collection_name=COLLECTION_NAME,
-                vectors_config=VectorParams(size=self._dimensions, distance=Distance.COSINE),
-            )
-            logger.info(f"Qdrant-Collection '{COLLECTION_NAME}' erstellt (dim={self._dimensions})")
+        if COLLECTION_NAME in names:
+            info = await self._client.get_collection(COLLECTION_NAME)
+            vec_cfg = info.config.params.vectors
+            existing_size = vec_cfg.size if hasattr(vec_cfg, "size") else next(iter(vec_cfg.values())).size
+            if existing_size != self._dimensions:
+                raise ValueError(
+                    f"Vektordimension stimmt nicht überein: Collection hat {existing_size} Dims, "
+                    f"Provider erwartet {self._dimensions} Dims. "
+                    f"Bitte alle Dokumente löschen und neu indexieren: "
+                    f"curl -X DELETE http://{settings.qdrant_host}:{settings.qdrant_port}/collections/{COLLECTION_NAME}"
+                )
+            return
+        await self._client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=VectorParams(size=self._dimensions, distance=Distance.COSINE),
+        )
+        logger.info(f"Qdrant-Collection '{COLLECTION_NAME}' erstellt (dim={self._dimensions})")
+        await self._client.create_payload_index(
+            collection_name=COLLECTION_NAME,
+            field_name="content_hash",
+            field_schema="keyword",
+        )
+        logger.info("Payload-Index auf 'content_hash' erstellt")
 
     async def upsert(
         self,

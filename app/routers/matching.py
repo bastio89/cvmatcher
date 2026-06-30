@@ -1,7 +1,10 @@
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from app.models.schemas import BatchMatchRequest, BatchMatchResponse, MatchRequest, MatchResponse
 from app.services.matcher import MatcherService
 from app.dependencies import get_matcher
+
+_CONNECTION_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError)
 
 router = APIRouter()
 
@@ -34,6 +37,8 @@ async def run_match(
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except _CONNECTION_ERRORS as e:
+        raise HTTPException(status_code=503, detail=f"Dienst nicht erreichbar — bitte Qdrant/Ollama-Status prüfen: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Matching-Fehler: {str(e)}")
 
@@ -69,5 +74,7 @@ async def run_batch_match(
             include_analysis=request.include_analysis,
             scoring=request.scoring,
         )
+    except _CONNECTION_ERRORS as e:
+        raise HTTPException(status_code=503, detail=f"Dienst nicht erreichbar — bitte Qdrant/Ollama-Status prüfen: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Batch-Matching-Fehler: {str(e)}")

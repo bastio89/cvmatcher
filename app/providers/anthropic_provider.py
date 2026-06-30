@@ -67,15 +67,12 @@ class AnthropicProvider(AIProvider):
         )
         raw = message.content[0].text.strip()
 
+        if "```" in raw:
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+
         try:
             return json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning("Claude returned non-JSON, using fallback")
-            return {
-                "overall_score": 50,
-                "overall_label": "Moderate",
-                "summary": raw[:500],
-                "skills": {"matching": [], "missing": [], "bonus": []},
-                "strengths": [],
-                "gaps": [],
-            }
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Claude hat kein valides JSON zurückgegeben: {raw[:200]}") from exc

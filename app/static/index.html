@@ -95,6 +95,34 @@
         <input x-model="settingsForm.ollama_host" type="text" placeholder="http://localhost:11434"
                class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
       </div>
+      <!-- Verarbeitung -->
+      <div>
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Verarbeitung</p>
+        <div class="space-y-2">
+          <div>
+            <label class="text-xs text-slate-500 mb-1 block">LLM Timeout (Sek.) — leer lassen für kein Timeout (Overnight-Jobs)</label>
+            <input x-model="settingsForm.ollama_timeout" type="number" min="0" placeholder="kein Timeout"
+                   class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="text-xs text-slate-500 mb-1 block">Embed Timeout (Sek.)</label>
+              <input x-model.number="settingsForm.ollama_embed_timeout" type="number" min="10"
+                     class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-slate-500 mb-1 block">Upload-Limit (MB)</label>
+              <input x-model.number="settingsForm.max_upload_size_mb" type="number" min="1" max="500"
+                     class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-slate-500 mb-1 block">Batch-Parallelen</label>
+              <input x-model.number="settingsForm.batch_concurrency" type="number" min="1" max="20"
+                     class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+        </div>
+      </div>
       <!-- Connection status -->
       <div x-show="svcStatus.qdrant !== null || svcStatus.ollama !== null" class="bg-slate-50 rounded-xl p-4 space-y-2.5">
         <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Verbindungsstatus</p>
@@ -114,6 +142,17 @@
           </div>
           <span :class="svcStatus.ollama && svcStatus.ollama.ok ? 'text-emerald-600 bg-emerald-50' : 'text-red-600 bg-red-50'" class="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0" x-text="svcStatus.ollama ? (svcStatus.ollama.ok ? 'OK' : 'Fehler') : ''"></span>
         </div>
+        <!-- Modell-Verfügbarkeit -->
+        <template x-if="svcStatus.ollama && svcStatus.ollama.ok && svcStatus.ollama.models">
+          <div class="ml-5 space-y-1 pt-0.5">
+            <template x-for="(info, key) in svcStatus.ollama.models" :key="key">
+              <div class="flex items-center gap-2">
+                <div :class="info.available ? 'bg-emerald-400' : 'bg-amber-400'" class="w-1.5 h-1.5 rounded-full flex-shrink-0"></div>
+                <span class="text-xs text-slate-500" x-text="info.name + (info.available ? ' — geladen' : ' — nicht geladen (ollama pull ' + info.name + ')')"></span>
+              </div>
+            </template>
+          </div>
+        </template>
       </div>
       <!-- Actions -->
       <div class="flex items-center gap-2 pt-1">
@@ -792,7 +831,7 @@ function app() {
 
     // Settings
     settingsModal: false,
-    settingsForm: { qdrant_host: 'localhost', qdrant_port: 6333, ollama_host: 'http://localhost:11434' },
+    settingsForm: { qdrant_host: 'localhost', qdrant_port: 6333, ollama_host: 'http://localhost:11434', ollama_timeout: '', ollama_embed_timeout: 120, max_upload_size_mb: 50, batch_concurrency: 3 },
     svcStatus: { qdrant: null, ollama: null, testing: false, saving: false },
     svcHealth: { qdrant: null, ollama: null },
 
@@ -992,7 +1031,10 @@ function app() {
     async openSettings() {
       try {
         const r = await fetch('/api/v1/settings');
-        if (r.ok) this.settingsForm = await r.json();
+        if (r.ok) {
+          const d = await r.json();
+          this.settingsForm = { ...d, ollama_timeout: d.ollama_timeout === null ? '' : d.ollama_timeout };
+        }
       } catch {}
       this.svcStatus = { qdrant: null, ollama: null, testing: false, saving: false };
       this.settingsModal = true;
@@ -1017,16 +1059,21 @@ function app() {
     async saveSettings() {
       this.svcStatus.saving = true;
       try {
+        const t = this.settingsForm.ollama_timeout;
+        const payload = {
+          ...this.settingsForm,
+          ollama_timeout: (t === '' || t === null || t === undefined) ? null : parseInt(t) || null,
+        };
         const r = await fetch('/api/v1/settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.settingsForm),
+          body: JSON.stringify(payload),
         });
-        if (!r.ok) throw new Error();
+        if (!r.ok) throw new Error(await r.text());
         this.showToast('Einstellungen gespeichert');
         this.settingsModal = false;
         await this.checkHealth();
-      } catch { this.showToast('Fehler beim Speichern', 'error'); }
+      } catch (e) { this.showToast('Fehler beim Speichern: ' + (e.message || e), 'error'); }
       this.svcStatus.saving = false;
     },
   };

@@ -1,8 +1,12 @@
 import hashlib
 import logging
 import uuid
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from app.config import settings
+
+_CONNECTION_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, ConnectionRefusedError)
+_SERVICE_DOWN = "Dienst nicht erreichbar — bitte Qdrant-Status prüfen"
 from app.models.schemas import (
     BatchUploadResponse,
     DeleteResponse,
@@ -165,9 +169,12 @@ async def list_documents(
     cursor: str | None = Query(default=None, description="Cursor der vorherigen Seite (aus next_cursor)"),
     store: VectorStore = Depends(get_vector_store),
 ):
-    doc_type = type.value if type else None
-    total = await store.count_documents(doc_type)
-    items_raw, next_cursor = await store.list_documents(doc_type=doc_type, limit=limit, cursor=cursor)
+    try:
+        doc_type = type.value if type else None
+        total = await store.count_documents(doc_type)
+        items_raw, next_cursor = await store.list_documents(doc_type=doc_type, limit=limit, cursor=cursor)
+    except _CONNECTION_ERRORS:
+        raise HTTPException(status_code=503, detail=_SERVICE_DOWN)
 
     items = [
         DocumentListItem(
@@ -191,7 +198,10 @@ async def get_document(
     document_id: str,
     store: VectorStore = Depends(get_vector_store),
 ):
-    doc = await store.get_by_doc_id(document_id)
+    try:
+        doc = await store.get_by_doc_id(document_id)
+    except _CONNECTION_ERRORS:
+        raise HTTPException(status_code=503, detail=_SERVICE_DOWN)
     if doc is None:
         raise HTTPException(status_code=404, detail=f"Dokument '{document_id}' nicht gefunden.")
     return DocumentDetail(
@@ -213,7 +223,10 @@ async def delete_document(
     document_id: str,
     store: VectorStore = Depends(get_vector_store),
 ):
-    deleted = await store.delete(document_id)
+    try:
+        deleted = await store.delete(document_id)
+    except _CONNECTION_ERRORS:
+        raise HTTPException(status_code=503, detail=_SERVICE_DOWN)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Dokument '{document_id}' nicht gefunden.")
     return DeleteResponse(id=document_id, deleted=True)
