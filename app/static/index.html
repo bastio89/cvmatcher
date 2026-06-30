@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CV Matcher</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    [x-cloak] { display: none !important; }
+    * { font-family: 'Inter', sans-serif; }
+    .score-bar { transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1); }
+    @keyframes cardIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+    .card-in { animation: cardIn 0.35s ease-out forwards; }
+    .drag-over { border-color: #3B82F6 !important; background: #EFF6FF !important; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800" x-data="app()" x-init="init()" x-cloak>
+
+<!-- ── Toast ── -->
+<div x-show="toast.show" x-transition:enter="transition duration-200" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100" x-transition:leave="transition duration-150" x-transition:leave-end="opacity-0"
+     class="fixed top-4 right-4 z-50 min-w-64 max-w-sm">
+  <div :class="toast.type==='error' ? 'bg-red-600' : 'bg-emerald-600'" class="text-white px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 text-sm font-medium">
+    <span x-text="toast.type==='error' ? '✕' : '✓'" class="text-base"></span>
+    <span x-text="toast.message"></span>
+  </div>
+</div>
+
+<!-- ── Document Text Modal ── -->
+<div x-show="modal.show" x-transition class="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4" @click.self="modal.show=false">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+    <div class="flex items-center justify-between p-5 border-b border-slate-100">
+      <div class="flex items-center gap-2">
+        <span :class="modal.docType==='cv' ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700'" class="text-xs font-bold px-2 py-1 rounded-md uppercase" x-text="modal.docType==='cv' ? 'CV' : 'Stelle'"></span>
+        <span class="font-semibold text-slate-800 text-sm" x-text="modal.filename"></span>
+      </div>
+      <button @click="modal.show=false" class="text-slate-400 hover:text-slate-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100">✕</button>
+    </div>
+    <div class="p-5 overflow-auto flex-1">
+      <pre class="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed" x-text="modal.text"></pre>
+    </div>
+    <div class="px-5 py-3 border-t border-slate-100 text-xs text-slate-400">
+      <span x-text="(modal.text||'').length.toLocaleString('de') + ' Zeichen'"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Delete Confirm Modal ── -->
+<div x-show="delConfirm.show" x-transition class="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4" @click.self="delConfirm.show=false">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+    <h3 class="font-semibold text-lg mb-1">Dokument löschen?</h3>
+    <p class="text-slate-500 text-sm mb-5">„<span x-text="delConfirm.filename" class="font-medium text-slate-700"></span>" wird dauerhaft aus dem Index entfernt.</p>
+    <div class="flex gap-3 justify-end">
+      <button @click="delConfirm.show=false" class="px-4 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50">Abbrechen</button>
+      <button @click="confirmDelete()" class="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700">Löschen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Settings Modal ── -->
+<div x-show="settingsModal" x-transition class="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4" @click.self="settingsModal=false">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div class="flex items-center justify-between p-5 border-b border-slate-100">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+        <h3 class="font-semibold text-slate-800">Verbindungseinstellungen</h3>
+      </div>
+      <button @click="settingsModal=false" class="text-slate-400 hover:text-slate-600 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100">✕</button>
+    </div>
+    <div class="p-5 space-y-5">
+      <!-- Qdrant -->
+      <div>
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Qdrant Vektordatenbank</p>
+        <div class="grid grid-cols-3 gap-2">
+          <div class="col-span-2">
+            <label class="text-xs text-slate-500 mb-1 block">Host</label>
+            <input x-model="settingsForm.qdrant_host" type="text" placeholder="localhost"
+                   class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="text-xs text-slate-500 mb-1 block">Port</label>
+            <input x-model.number="settingsForm.qdrant_port" type="number" placeholder="6333"
+                   class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+        </div>
+      </div>
+      <!-- Ollama -->
+      <div>
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Ollama KI-Provider</p>
+        <label class="text-xs text-slate-500 mb-1 block">Base URL</label>
+        <input x-model="settingsForm.ollama_host" type="text" placeholder="http://localhost:11434"
+               class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+      </div>
+      <!-- Connection status -->
+      <div x-show="svcStatus.qdrant !== null || svcStatus.ollama !== null" class="bg-slate-50 rounded-xl p-4 space-y-2.5">
+        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Verbindungsstatus</p>
+        <div class="flex items-center gap-3">
+          <div :class="svcStatus.qdrant && svcStatus.qdrant.ok ? 'bg-emerald-400' : 'bg-red-400'" class="w-2.5 h-2.5 rounded-full flex-shrink-0"></div>
+          <div class="flex-1 min-w-0">
+            <span class="text-sm font-medium text-slate-700">Qdrant</span>
+            <span class="text-xs text-slate-400 ml-2 truncate" x-text="svcStatus.qdrant ? (svcStatus.qdrant.ok ? settingsForm.qdrant_host+':'+settingsForm.qdrant_port : (svcStatus.qdrant.error || 'nicht erreichbar')) : ''"></span>
+          </div>
+          <span :class="svcStatus.qdrant && svcStatus.qdrant.ok ? 'text-emerald-600 bg-emerald-50' : 'text-red-600 bg-red-50'" class="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0" x-text="svcStatus.qdrant ? (svcStatus.qdrant.ok ? 'OK' : 'Fehler') : ''"></span>
+        </div>
+        <div class="flex items-center gap-3">
+          <div :class="svcStatus.ollama && svcStatus.ollama.ok ? 'bg-emerald-400' : 'bg-red-400'" class="w-2.5 h-2.5 rounded-full flex-shrink-0"></div>
+          <div class="flex-1 min-w-0">
+            <span class="text-sm font-medium text-slate-700">Ollama</span>
+            <span class="text-xs text-slate-400 ml-2 truncate" x-text="svcStatus.ollama ? (svcStatus.ollama.ok ? settingsForm.ollama_host : (svcStatus.ollama.error || 'nicht erreichbar')) : ''"></span>
+          </div>
+          <span :class="svcStatus.ollama && svcStatus.ollama.ok ? 'text-emerald-600 bg-emerald-50' : 'text-red-600 bg-red-50'" class="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0" x-text="svcStatus.ollama ? (svcStatus.ollama.ok ? 'OK' : 'Fehler') : ''"></span>
+        </div>
+      </div>
+      <!-- Actions -->
+      <div class="flex items-center gap-2 pt-1">
+        <button @click="testConnection()" :disabled="svcStatus.testing"
+                class="flex-1 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+          <span x-show="svcStatus.testing" class="w-3.5 h-3.5 border-2 border-slate-400/40 border-t-slate-600 rounded-full animate-spin"></span>
+          <span x-text="svcStatus.testing ? 'Teste...' : 'Verbindung testen'"></span>
+        </button>
+        <button @click="settingsModal=false" class="px-4 py-2 text-sm text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-50 transition-colors">Abbrechen</button>
+        <button @click="saveSettings()" :disabled="svcStatus.saving"
+                class="px-5 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+          <span x-show="svcStatus.saving" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+          <span x-text="svcStatus.saving ? 'Speichert...' : 'Speichern'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Layout ── -->
+<div class="flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <aside class="w-56 bg-slate-900 flex-shrink-0 flex flex-col">
+    <div class="p-5 pb-4">
+      <div class="flex items-center gap-2.5 mb-0.5">
+        <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-xs tracking-tight">CV</div>
+        <span class="text-white font-semibold text-base">CV Matcher</span>
+      </div>
+      <p class="text-slate-500 text-xs ml-10">AI-powered Recruiting</p>
+    </div>
+
+    <nav class="flex-1 px-3 space-y-0.5">
+      <template x-for="item in navItems" :key="item.id">
+        <button @click="setView(item.id)" :class="view===item.id ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'"
+                class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left">
+          <span x-html="item.icon" class="w-4 h-4 flex-shrink-0"></span>
+          <span x-text="item.label"></span>
+          <template x-if="item.id==='documents' && stats.total > 0">
+            <span class="ml-auto bg-slate-600 text-slate-300 text-xs px-1.5 py-0.5 rounded-full" x-text="stats.total"></span>
+          </template>
+        </button>
+      </template>
+    </nav>
+
+    <div class="p-4 border-t border-slate-800">
+      <div class="flex items-start gap-2">
+        <div class="flex-1 space-y-1.5">
+          <div class="flex items-center gap-2">
+            <div :class="svcHealth.qdrant === true ? 'bg-emerald-400' : svcHealth.qdrant === false ? 'bg-red-500' : 'bg-slate-600 animate-pulse'" class="w-2 h-2 rounded-full flex-shrink-0"></div>
+            <span class="text-slate-400 text-xs flex-1">Qdrant</span>
+            <span :class="svcHealth.qdrant === true ? 'text-emerald-500' : svcHealth.qdrant === false ? 'text-red-400' : 'text-slate-600'" class="text-xs font-medium" x-text="svcHealth.qdrant === true ? 'online' : svcHealth.qdrant === false ? 'offline' : '...'"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <div :class="svcHealth.ollama === true ? 'bg-emerald-400' : svcHealth.ollama === false ? 'bg-red-500' : 'bg-slate-600 animate-pulse'" class="w-2 h-2 rounded-full flex-shrink-0"></div>
+            <span class="text-slate-400 text-xs flex-1">Ollama</span>
+            <span :class="svcHealth.ollama === true ? 'text-emerald-500' : svcHealth.ollama === false ? 'text-red-400' : 'text-slate-600'" class="text-xs font-medium" x-text="svcHealth.ollama === true ? 'online' : svcHealth.ollama === false ? 'offline' : '...'"></span>
+          </div>
+        </div>
+        <button @click="openSettings()" class="text-slate-500 hover:text-white transition-colors flex-shrink-0 p-1 rounded hover:bg-slate-700 mt-0.5" title="Verbindung konfigurieren">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Content -->
+  <main class="flex-1 overflow-auto">
+
+    <!-- ═══════════════════════════════════ DASHBOARD ═══════════════════════════════════ -->
+    <div x-show="view==='dashboard'" class="p-8 max-w-5xl">
+      <div class="mb-8">
+        <h1 class="text-2xl font-bold text-slate-900">Übersicht</h1>
+        <p class="text-slate-500 text-sm mt-1">Willkommen beim CV Matcher — semantisches AI-Recruiting</p>
+      </div>
+
+      <!-- Stats -->
+      <div class="grid grid-cols-3 gap-4 mb-8">
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60">
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Dokumente gesamt</p>
+          <p class="text-4xl font-bold text-slate-900 mt-2" x-text="stats.total"></p>
+          <p class="text-xs text-slate-400 mt-1">im Vektorindex</p>
+        </div>
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60">
+          <p class="text-xs font-semibold text-blue-400 uppercase tracking-wide">CVs</p>
+          <p class="text-4xl font-bold text-blue-600 mt-2" x-text="stats.cvs"></p>
+          <p class="text-xs text-slate-400 mt-1">Lebensläufe indexiert</p>
+        </div>
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60">
+          <p class="text-xs font-semibold text-violet-400 uppercase tracking-wide">Stellen</p>
+          <p class="text-4xl font-bold text-violet-600 mt-2" x-text="stats.jobs"></p>
+          <p class="text-xs text-slate-400 mt-1">Stellenbeschreibungen indexiert</p>
+        </div>
+      </div>
+
+      <!-- Quick actions -->
+      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Schnellstart</h2>
+      <div class="grid grid-cols-2 gap-3 mb-8">
+        <button @click="setView('documents')" class="bg-white rounded-xl p-4 shadow-sm border border-slate-200/60 hover:border-blue-300 hover:shadow-md transition-all text-left group">
+          <div class="w-9 h-9 bg-blue-50 rounded-lg flex items-center justify-center mb-3 group-hover:bg-blue-100 transition-colors">
+            <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          </div>
+          <p class="font-semibold text-slate-800 text-sm">Dokumente hochladen</p>
+          <p class="text-slate-400 text-xs mt-0.5">CVs und Stellenbeschreibungen als PDF indexieren</p>
+        </button>
+        <button @click="setView('matching')" class="bg-white rounded-xl p-4 shadow-sm border border-slate-200/60 hover:border-violet-300 hover:shadow-md transition-all text-left group">
+          <div class="w-9 h-9 bg-violet-50 rounded-lg flex items-center justify-center mb-3 group-hover:bg-violet-100 transition-colors">
+            <svg class="w-5 h-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          </div>
+          <p class="font-semibold text-slate-800 text-sm">Matching starten</p>
+          <p class="text-slate-400 text-xs mt-0.5">CV gegen Stellen oder Stelle gegen Kandidaten matchen</p>
+        </button>
+        <button @click="setView('batch')" class="bg-white rounded-xl p-4 shadow-sm border border-slate-200/60 hover:border-emerald-300 hover:shadow-md transition-all text-left group">
+          <div class="w-9 h-9 bg-emerald-50 rounded-lg flex items-center justify-center mb-3 group-hover:bg-emerald-100 transition-colors">
+            <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+          </div>
+          <p class="font-semibold text-slate-800 text-sm">Batch-Matching</p>
+          <p class="text-slate-400 text-xs mt-0.5">Mehrere Dokumente gleichzeitig matchen</p>
+        </button>
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-200/60">
+          <div class="w-9 h-9 bg-slate-50 rounded-lg flex items-center justify-center mb-3">
+            <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+          </div>
+          <p class="font-semibold text-slate-800 text-sm">API-Dokumentation</p>
+          <p class="text-slate-400 text-xs mt-0.5"><a href="/docs" target="_blank" class="text-blue-500 hover:underline">/docs</a> · <a href="/redoc" target="_blank" class="text-blue-500 hover:underline">/redoc</a> · <a href="/openapi.yaml" target="_blank" class="text-blue-500 hover:underline">YAML</a></p>
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Wie es funktioniert</h2>
+      <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/60">
+        <div class="flex items-start gap-8">
+          <template x-for="(step, i) in howItWorks" :key="i">
+            <div class="flex-1 flex flex-col items-center text-center relative">
+              <div class="w-10 h-10 rounded-full bg-blue-50 border-2 border-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm mb-3 z-10" x-text="i+1"></div>
+              <template x-if="i < howItWorks.length - 1">
+                <div class="absolute top-5 left-1/2 w-full h-0.5 bg-slate-100"></div>
+              </template>
+              <p class="font-semibold text-sm text-slate-700 mb-1" x-text="step.title"></p>
+              <p class="text-xs text-slate-400 leading-relaxed" x-text="step.desc"></p>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════ DOKUMENTE ═══════════════════════════════════ -->
+    <div x-show="view==='documents'" class="p-8 max-w-5xl">
+      <div class="mb-6">
+        <h1 class="text-2xl font-bold text-slate-900">Dokumente</h1>
+        <p class="text-slate-500 text-sm mt-1">PDFs hochladen, indexieren und verwalten</p>
+      </div>
+
+      <!-- Upload zones -->
+      <div class="grid grid-cols-2 gap-4 mb-8">
+        <!-- CV Upload -->
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60">
+          <div class="flex items-center gap-2 mb-4">
+            <div class="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center">
+              <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+            </div>
+            <h3 class="font-semibold text-slate-800">CVs hochladen</h3>
+            <span class="ml-auto text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full" x-text="stats.cvs + ' indexiert'"></span>
+          </div>
+          <label class="block border-2 border-dashed border-slate-200 rounded-xl p-6 text-center cursor-pointer hover:border-blue-300 hover:bg-blue-50/50 transition-all"
+                 @dragover.prevent="$el.classList.add('drag-over')"
+                 @dragleave="$el.classList.remove('drag-over')"
+                 @drop.prevent="$el.classList.remove('drag-over'); handleDrop($event, 'cv')">
+            <input type="file" multiple accept=".pdf" class="hidden" @change="cvFiles = Array.from($event.target.files)">
+            <svg class="w-8 h-8 text-slate-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            <p class="text-sm text-slate-500">PDF hierher ziehen oder <span class="text-blue-500 font-medium">auswählen</span></p>
+            <p class="text-xs text-slate-400 mt-1">Mehrere Dateien möglich</p>
+          </label>
+          <template x-if="cvFiles.length > 0">
+            <div class="mt-3 space-y-1">
+              <template x-for="f in cvFiles" :key="f.name">
+                <div class="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 px-3 py-1.5 rounded-lg">
+                  <svg class="w-3 h-3 text-slate-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V8a2 2 0 00-2-2h-5L9 4H4z"/></svg>
+                  <span class="truncate" x-text="f.name"></span>
+                </div>
+              </template>
+            </div>
+          </template>
+          <button @click="uploadFiles('cv')" :disabled="cvFiles.length===0 || uploadingCVs"
+                  class="mt-3 w-full py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+            <span x-show="uploadingCVs" class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+            <span x-text="uploadingCVs ? 'Wird hochgeladen...' : 'CVs indexieren'"></span>
+          </button>
+        </div>
+
+        <!-- Job Upload -->
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60">
+          <div class="flex items-center gap-2 mb-4">
+            <div class="w-7 h-7 bg-violet-100 rounded-lg flex items-center justify-center">
+              <svg class="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            </div>
+            <h3 class="font-semibold text-slate-800">Stellen hochladen</h3>
+            <span class="ml-auto text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full" x-text="stats.jobs + ' indexiert'"></span>
+          </div>
+          <label class="block border-2 border-dashed border-slate-200 rounded-xl p-6 text-center cursor-pointer hover:border-violet-300 hover:bg-violet-50/50 transition-all"
+                 @dragover.prevent="$el.classList.add('drag-over')"
+                 @dragleave="$el.classList.remove('drag-over')"
+                 @drop.prevent="$el.classList.remove('drag-over'); handleDrop($event, 'job')">
+            <input type="file" multiple accept=".pdf" class="hidden" @change="jobFiles = Array.from($event.target.files)">
+            <svg class="w-8 h-8 text-slate-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            <p class="text-sm text-slate-500">PDF hierher ziehen oder <span class="text-violet-500 font-medium">auswählen</span></p>
+            <p class="text-xs text-slate-400 mt-1">Mehrere Dateien möglich</p>
+          </label>
+          <template x-if="jobFiles.length > 0">
+            <div class="mt-3 space-y-1">
+              <template x-for="f in jobFiles" :key="f.name">
+                <div class="flex items-center gap-2 text-xs text-slate-600 bg-slate-50 px-3 py-1.5 rounded-lg">
+                  <svg class="w-3 h-3 text-slate-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V8a2 2 0 00-2-2h-5L9 4H4z"/></svg>
+                  <span class="truncate" x-text="f.name"></span>
+                </div>
+              </template>
+            </div>
+          </template>
+          <button @click="uploadFiles('job')" :disabled="jobFiles.length===0 || uploadingJobs"
+                  class="mt-3 w-full py-2 text-sm font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2">
+            <span x-show="uploadingJobs" class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+            <span x-text="uploadingJobs ? 'Wird hochgeladen...' : 'Stellen indexieren'"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Document list -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-200/60">
+        <div class="flex items-center justify-between p-5 border-b border-slate-100">
+          <div class="flex gap-1">
+            <button @click="docFilter=null; loadDocuments(true)" :class="docFilter===null ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-50'" class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors">Alle</button>
+            <button @click="docFilter='cv'; loadDocuments(true)" :class="docFilter==='cv' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-50'" class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors">CVs</button>
+            <button @click="docFilter='job'; loadDocuments(true)" :class="docFilter==='job' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-50'" class="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors">Stellen</button>
+          </div>
+          <span class="text-xs text-slate-400" x-text="docsTotal + ' Dokument' + (docsTotal !== 1 ? 'e' : '')"></span>
+        </div>
+
+        <div x-show="docsLoading && documents.length===0" class="p-12 text-center text-slate-400 text-sm">Lade Dokumente...</div>
+
+        <div x-show="!docsLoading && documents.length===0" class="p-12 text-center">
+          <svg class="w-10 h-10 text-slate-200 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          <p class="text-slate-400 text-sm">Noch keine Dokumente im Index</p>
+          <p class="text-slate-300 text-xs mt-1">Lade CVs oder Stellenbeschreibungen hoch</p>
+        </div>
+
+        <template x-if="documents.length > 0">
+          <div>
+            <table class="w-full">
+              <thead>
+                <tr class="text-left">
+                  <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide w-20">Typ</th>
+                  <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide">Dateiname</th>
+                  <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide text-right w-32">Zeichen</th>
+                  <th class="px-5 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide text-right w-28">Aktionen</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-50">
+                <template x-for="doc in documents" :key="doc.id">
+                  <tr class="hover:bg-slate-50/60 transition-colors">
+                    <td class="px-5 py-3">
+                      <span :class="doc.type==='cv' ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700'" class="text-xs font-semibold px-2 py-1 rounded-md uppercase" x-text="doc.type==='cv' ? 'CV' : 'Stelle'"></span>
+                    </td>
+                    <td class="px-5 py-3">
+                      <span class="text-sm text-slate-700 font-medium" x-text="doc.filename"></span>
+                    </td>
+                    <td class="px-5 py-3 text-right">
+                      <span class="text-xs text-slate-400" x-text="doc.text_length.toLocaleString('de')"></span>
+                    </td>
+                    <td class="px-5 py-3 text-right">
+                      <div class="flex items-center justify-end gap-1">
+                        <button @click="viewDocument(doc.id, doc.filename, doc.type)" class="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Text anzeigen">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                        </button>
+                        <button @click="delConfirm={show:true, id:doc.id, filename:doc.filename}" class="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Löschen">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div x-show="docsNextCursor" class="p-4 text-center border-t border-slate-50">
+              <button @click="loadDocuments(false)" :disabled="docsLoading" class="text-sm text-blue-600 hover:text-blue-800 font-medium disabled:opacity-40">
+                <span x-show="docsLoading">Lade...</span>
+                <span x-show="!docsLoading">Mehr laden</span>
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════ MATCHING ═══════════════════════════════════ -->
+    <div x-show="view==='matching'" class="p-8 h-full flex flex-col">
+      <div class="mb-6">
+        <h1 class="text-2xl font-bold text-slate-900">Matching</h1>
+        <p class="text-slate-500 text-sm mt-1">Semantische Passung zwischen CV und Stelle analysieren</p>
+      </div>
+
+      <div class="flex gap-6 flex-1 min-h-0">
+        <!-- Left: Config panel -->
+        <div class="w-72 flex-shrink-0 space-y-4">
+          <!-- Source type -->
+          <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Quell-Typ</p>
+            <div class="flex gap-2">
+              <button @click="matchSourceType='job'; loadMatchDocs()" :class="matchSourceType==='job' ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors">Stelle</button>
+              <button @click="matchSourceType='cv'; loadMatchDocs()" :class="matchSourceType==='cv' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors">CV</button>
+            </div>
+            <p class="text-xs text-slate-400 mt-2" x-text="matchSourceType==='job' ? '→ Findet passende Kandidaten' : '→ Findet passende Stellen'"></p>
+          </div>
+
+          <!-- Document select -->
+          <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Dokument auswählen</p>
+            <select x-model="matchSourceId" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">— Dokument wählen —</option>
+              <template x-for="doc in matchSourceDocs" :key="doc.id">
+                <option :value="doc.id" x-text="doc.filename"></option>
+              </template>
+            </select>
+            <p x-show="matchSourceDocs.length===0" class="text-xs text-slate-400 mt-2">Keine Dokumente im Index</p>
+          </div>
+
+          <!-- Parameters -->
+          <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-4">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Parameter</p>
+
+            <div>
+              <div class="flex justify-between mb-1.5">
+                <label class="text-sm text-slate-700">Top-Treffer</label>
+                <span class="text-sm font-semibold text-slate-800" x-text="matchTopK"></span>
+              </div>
+              <input type="range" x-model.number="matchTopK" min="1" max="30" class="w-full accent-blue-600">
+            </div>
+
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm text-slate-700">KI-Analyse</p>
+                <p class="text-xs text-slate-400">Detailliertes Feedback pro Treffer</p>
+              </div>
+              <button @click="matchAnalysis=!matchAnalysis" :class="matchAnalysis ? 'bg-blue-600' : 'bg-slate-200'" class="relative w-10 h-6 rounded-full transition-colors flex-shrink-0 focus:outline-none overflow-hidden">
+                <span :class="matchAnalysis ? 'translate-x-4' : 'translate-x-0'" class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform"></span>
+              </button>
+            </div>
+
+            <div x-show="matchAnalysis">
+              <div class="flex justify-between mb-2">
+                <label class="text-sm text-slate-700">Score-Gewichtung</label>
+              </div>
+              <div class="flex justify-between text-xs text-slate-500 mb-1">
+                <span>Vektor <span class="font-semibold text-slate-700" x-text="(100-matchLlmWeight)+'%'"></span></span>
+                <span>LLM <span class="font-semibold text-slate-700" x-text="matchLlmWeight+'%'"></span></span>
+              </div>
+              <div class="h-2 bg-slate-100 rounded-full overflow-hidden mb-1.5">
+                <div class="h-full rounded-full transition-all" :style="`width:${matchLlmWeight}%; background: linear-gradient(90deg, #60A5FA ${100-matchLlmWeight}%, #8B5CF6)`"></div>
+              </div>
+              <input type="range" x-model.number="matchLlmWeight" min="0" max="100" step="5" class="w-full accent-violet-600">
+            </div>
+          </div>
+
+          <button @click="runMatch()" :disabled="!matchSourceId || matchLoading"
+                  class="w-full py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 shadow-sm">
+            <span x-show="matchLoading" class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+            <span x-text="matchLoading ? 'Analysiere...' : 'Matching starten'"></span>
+          </button>
+        </div>
+
+        <!-- Right: Results -->
+        <div class="flex-1 overflow-auto">
+          <!-- Empty state -->
+          <div x-show="!matchResults && !matchLoading" class="h-full flex items-center justify-center">
+            <div class="text-center">
+              <div class="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <svg class="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+              </div>
+              <p class="text-slate-400 font-medium">Noch kein Matching gestartet</p>
+              <p class="text-slate-300 text-sm mt-1">Dokument auswählen und Matching starten</p>
+            </div>
+          </div>
+
+          <!-- Loading -->
+          <div x-show="matchLoading" class="h-full flex items-center justify-center">
+            <div class="text-center">
+              <div class="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+              <p class="text-slate-500 font-medium">KI analysiert Dokumente...</p>
+              <p class="text-slate-300 text-sm mt-1">Das kann je nach Modell einige Sekunden dauern</p>
+            </div>
+          </div>
+
+          <!-- Results -->
+          <div x-show="matchResults && !matchLoading">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h2 class="font-semibold text-slate-800" x-text="matchResults && matchResults.total_candidates + ' Treffer gefunden'"></h2>
+                <p class="text-xs text-slate-400 mt-0.5" x-text="matchResults && 'Gewichtung: Vektor ' + Math.round((1-matchResults.scoring.llm)*100) + '% · LLM ' + Math.round(matchResults.scoring.llm*100) + '%'"></p>
+              </div>
+            </div>
+
+            <div class="space-y-3">
+              <template x-for="(result, idx) in (matchResults ? matchResults.results : [])" :key="result.document_id">
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden card-in" :style="`animation-delay: ${idx * 60}ms`">
+                  <!-- Card header -->
+                  <div class="p-5">
+                    <div class="flex items-start gap-4">
+                      <!-- Rank -->
+                      <div :class="result.rank===1 ? 'bg-amber-50 text-amber-600 border-amber-200' : result.rank===2 ? 'bg-slate-100 text-slate-500 border-slate-200' : result.rank===3 ? 'bg-orange-50 text-orange-500 border-orange-200' : 'bg-slate-50 text-slate-400 border-slate-100'" class="w-10 h-10 rounded-xl border-2 flex items-center justify-center font-bold text-sm flex-shrink-0" x-text="'#' + result.rank"></div>
+
+                      <!-- Info -->
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-2">
+                          <span class="font-semibold text-slate-800 text-sm truncate" x-text="result.filename"></span>
+                          <template x-if="result.analysis">
+                            <span :class="labelClass(result.analysis.overall_label)" class="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0" x-text="result.analysis.overall_label"></span>
+                          </template>
+                        </div>
+
+                        <!-- Score bars -->
+                        <div class="space-y-2">
+                          <div>
+                            <div class="flex justify-between text-xs text-slate-400 mb-1">
+                              <span>Vektor-Ähnlichkeit</span>
+                              <span class="font-medium text-slate-600" x-text="(result.similarity_score * 100).toFixed(1) + '%'"></span>
+                            </div>
+                            <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden" x-data="{w:0}" x-init="$nextTick(()=>{ setTimeout(()=>w=result.similarity_score*100, 100+idx*60) })">
+                              <div class="h-full bg-blue-400 rounded-full score-bar" :style="`width:${w}%`"></div>
+                            </div>
+                          </div>
+                          <div x-show="result.analysis">
+                            <div class="flex justify-between text-xs text-slate-400 mb-1">
+                              <span>KI-Score</span>
+                              <span class="font-medium text-slate-600" x-text="result.analysis ? result.analysis.overall_score + '/100' : ''"></span>
+                            </div>
+                            <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden" x-data="{w:0}" x-init="$nextTick(()=>{ setTimeout(()=>w=result.analysis ? result.analysis.overall_score : 0, 200+idx*60) })">
+                              <div class="h-full rounded-full score-bar" :class="result.analysis && result.analysis.overall_score >= 75 ? 'bg-emerald-500' : result.analysis && result.analysis.overall_score >= 50 ? 'bg-blue-500' : 'bg-amber-500'" :style="`width:${w}%`"></div>
+                            </div>
+                          </div>
+                          <div>
+                            <div class="flex justify-between text-xs text-slate-400 mb-1">
+                              <span>Gesamtscore (gewichtet)</span>
+                              <span class="font-bold text-slate-700" x-text="(result.final_score * 100).toFixed(1) + '%'"></span>
+                            </div>
+                            <div class="h-2 bg-slate-100 rounded-full overflow-hidden" x-data="{w:0}" x-init="$nextTick(()=>{ setTimeout(()=>w=result.final_score*100, 300+idx*60) })">
+                              <div class="h-full rounded-full score-bar" :class="result.final_score >= 0.75 ? 'bg-emerald-500' : result.final_score >= 0.5 ? 'bg-blue-500' : 'bg-amber-500'" :style="`width:${w}%`"></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Expandable analysis -->
+                  <template x-if="result.analysis">
+                    <div>
+                      <button @click="matchExpanded[result.document_id] = !matchExpanded[result.document_id]"
+                              class="w-full flex items-center justify-between px-5 py-3 bg-slate-50 border-t border-slate-100 text-xs font-medium text-slate-500 hover:bg-slate-100 transition-colors">
+                        <span>Detailanalyse</span>
+                        <svg :class="matchExpanded[result.document_id] ? 'rotate-180' : ''" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                      </button>
+                      <div x-show="matchExpanded[result.document_id]" x-transition class="px-5 py-4 border-t border-slate-100 space-y-4">
+                        <p class="text-sm text-slate-600 leading-relaxed" x-text="result.analysis.summary"></p>
+
+                        <div class="grid grid-cols-3 gap-3">
+                          <template x-if="result.analysis.skills.matching.length > 0">
+                            <div>
+                              <p class="text-xs font-semibold text-emerald-600 mb-1.5">✓ Match</p>
+                              <div class="flex flex-wrap gap-1">
+                                <template x-for="s in result.analysis.skills.matching" :key="s">
+                                  <span class="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full" x-text="s"></span>
+                                </template>
+                              </div>
+                            </div>
+                          </template>
+                          <template x-if="result.analysis.skills.missing.length > 0">
+                            <div>
+                              <p class="text-xs font-semibold text-red-500 mb-1.5">✕ Fehlt</p>
+                              <div class="flex flex-wrap gap-1">
+                                <template x-for="s in result.analysis.skills.missing" :key="s">
+                                  <span class="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded-full" x-text="s"></span>
+                                </template>
+                              </div>
+                            </div>
+                          </template>
+                          <template x-if="result.analysis.skills.bonus.length > 0">
+                            <div>
+                              <p class="text-xs font-semibold text-blue-500 mb-1.5">+ Bonus</p>
+                              <div class="flex flex-wrap gap-1">
+                                <template x-for="s in result.analysis.skills.bonus" :key="s">
+                                  <span class="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full" x-text="s"></span>
+                                </template>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3" x-show="result.analysis.strengths.length > 0 || result.analysis.gaps.length > 0">
+                          <div x-show="result.analysis.strengths.length > 0">
+                            <p class="text-xs font-semibold text-slate-500 mb-1.5">Stärken</p>
+                            <ul class="space-y-1">
+                              <template x-for="s in result.analysis.strengths" :key="s">
+                                <li class="text-xs text-slate-600 flex items-start gap-1.5"><span class="text-emerald-500 mt-0.5 flex-shrink-0">▸</span><span x-text="s"></span></li>
+                              </template>
+                            </ul>
+                          </div>
+                          <div x-show="result.analysis.gaps.length > 0">
+                            <p class="text-xs font-semibold text-slate-500 mb-1.5">Lücken</p>
+                            <ul class="space-y-1">
+                              <template x-for="g in result.analysis.gaps" :key="g">
+                                <li class="text-xs text-slate-600 flex items-start gap-1.5"><span class="text-amber-500 mt-0.5 flex-shrink-0">▸</span><span x-text="g"></span></li>
+                              </template>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════ BATCH ═══════════════════════════════════ -->
+    <div x-show="view==='batch'" class="p-8 max-w-5xl">
+      <div class="mb-6">
+        <h1 class="text-2xl font-bold text-slate-900">Batch-Matching</h1>
+        <p class="text-slate-500 text-sm mt-1">Mehrere Dokumente gleichzeitig gegen den Index matchen</p>
+      </div>
+
+      <div class="grid grid-cols-3 gap-6">
+        <!-- Config -->
+        <div class="col-span-1 space-y-4">
+          <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Quell-Typ</p>
+            <div class="flex gap-2">
+              <button @click="batchSourceType='job'; loadBatchDocs()" :class="batchSourceType==='job' ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors">Stelle</button>
+              <button @click="batchSourceType='cv'; loadBatchDocs()" :class="batchSourceType==='cv' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'" class="flex-1 py-2 text-sm font-medium rounded-lg transition-colors">CV</button>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200/60 space-y-4">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">Parameter</p>
+            <div>
+              <div class="flex justify-between mb-1.5">
+                <label class="text-sm text-slate-700">Top-Treffer pro Dok.</label>
+                <span class="text-sm font-semibold text-slate-800" x-text="batchTopK"></span>
+              </div>
+              <input type="range" x-model.number="batchTopK" min="1" max="20" class="w-full accent-blue-600">
+            </div>
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm text-slate-700">KI-Analyse</p>
+                <p class="text-xs text-slate-400">Detailliertes Feedback pro Treffer</p>
+              </div>
+              <button @click="batchAnalysis=!batchAnalysis" :class="batchAnalysis ? 'bg-blue-600' : 'bg-slate-200'" class="relative w-10 h-6 rounded-full transition-colors flex-shrink-0 focus:outline-none overflow-hidden">
+                <span :class="batchAnalysis ? 'translate-x-4' : 'translate-x-0'" class="absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform"></span>
+              </button>
+            </div>
+            <div x-show="batchAnalysis">
+              <div class="flex justify-between text-xs text-slate-500 mb-1">
+                <span>Vektor <span class="font-semibold text-slate-700" x-text="(100-batchLlmWeight)+'%'"></span></span>
+                <span>LLM <span class="font-semibold text-slate-700" x-text="batchLlmWeight+'%'"></span></span>
+              </div>
+              <input type="range" x-model.number="batchLlmWeight" min="0" max="100" step="5" class="w-full accent-violet-600">
+            </div>
+          </div>
+
+          <button @click="runBatch()" :disabled="batchSelectedIds.length===0 || batchLoading"
+                  class="w-full py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 shadow-sm">
+            <span x-show="batchLoading" class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
+            <span x-text="batchLoading ? 'Analysiere...' : 'Batch starten (' + batchSelectedIds.length + ')'"></span>
+          </button>
+        </div>
+
+        <!-- Document selector + results -->
+        <div class="col-span-2 space-y-4">
+          <!-- Selector -->
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-200/60">
+            <div class="flex items-center justify-between p-4 border-b border-slate-100">
+              <p class="text-sm font-semibold text-slate-700">Dokumente auswählen</p>
+              <div class="flex gap-2">
+                <button @click="batchSelectedIds = batchSourceDocs.map(d=>d.id)" class="text-xs text-blue-600 hover:text-blue-800 font-medium">Alle</button>
+                <span class="text-slate-200">|</span>
+                <button @click="batchSelectedIds = []" class="text-xs text-slate-400 hover:text-slate-600 font-medium">Keine</button>
+              </div>
+            </div>
+            <div class="max-h-56 overflow-auto divide-y divide-slate-50">
+              <div x-show="batchSourceDocs.length===0" class="p-6 text-center text-sm text-slate-400">Keine Dokumente vom Typ verfügbar</div>
+              <template x-for="doc in batchSourceDocs" :key="doc.id">
+                <label class="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors">
+                  <input type="checkbox" :value="doc.id" x-model="batchSelectedIds" class="rounded accent-blue-600 flex-shrink-0">
+                  <span :class="doc.type==='cv' ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700'" class="text-xs font-bold px-1.5 py-0.5 rounded uppercase flex-shrink-0" x-text="doc.type==='cv' ? 'CV' : 'JOB'"></span>
+                  <span class="text-sm text-slate-700 truncate" x-text="doc.filename"></span>
+                  <span class="text-xs text-slate-400 ml-auto flex-shrink-0" x-text="doc.text_length.toLocaleString('de') + ' Z.'"></span>
+                </label>
+              </template>
+            </div>
+          </div>
+
+          <!-- Batch results -->
+          <template x-if="batchResults">
+            <div>
+              <div class="flex items-center gap-3 mb-3">
+                <h2 class="font-semibold text-slate-800">Ergebnisse</h2>
+                <span class="text-xs bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full" x-text="batchResults.successful + '/' + batchResults.total_sources + ' erfolgreich'"></span>
+                <span x-show="batchResults.failed > 0" class="text-xs bg-red-100 text-red-700 font-semibold px-2 py-0.5 rounded-full" x-text="batchResults.failed + ' fehlgeschlagen'"></span>
+              </div>
+              <div class="space-y-3">
+                <template x-for="entry in batchResults.results" :key="entry.document_id">
+                  <div class="bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
+                    <button @click="batchExpanded[entry.document_id] = !batchExpanded[entry.document_id]"
+                            class="w-full flex items-center gap-3 p-4 hover:bg-slate-50 transition-colors text-left">
+                      <span :class="entry.status==='ok' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'" class="text-xs font-bold px-2 py-1 rounded-lg" x-text="entry.status==='ok' ? '✓' : '✕'"></span>
+                      <span class="font-medium text-slate-800 text-sm truncate" x-text="entry.filename || entry.document_id"></span>
+                      <template x-if="entry.match">
+                        <span class="ml-auto text-xs text-slate-400 flex-shrink-0" x-text="entry.match.total_candidates + ' Treffer'"></span>
+                      </template>
+                      <span x-show="entry.status==='error'" class="ml-auto text-xs text-red-400 flex-shrink-0" x-text="entry.error"></span>
+                      <svg :class="batchExpanded[entry.document_id] ? 'rotate-180' : ''" class="w-4 h-4 text-slate-400 flex-shrink-0 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </button>
+                    <div x-show="batchExpanded[entry.document_id]" x-transition class="border-t border-slate-100">
+                      <template x-if="entry.match && entry.match.results.length > 0">
+                        <div class="divide-y divide-slate-50">
+                          <template x-for="r in entry.match.results.slice(0,5)" :key="r.document_id">
+                            <div class="flex items-center gap-3 px-4 py-3">
+                              <span class="text-xs font-bold text-slate-400 w-5 text-center" x-text="'#'+r.rank"></span>
+                              <span class="text-sm text-slate-700 flex-1 truncate" x-text="r.filename"></span>
+                              <template x-if="r.analysis">
+                                <span :class="labelClass(r.analysis.overall_label)" class="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0" x-text="r.analysis.overall_label"></span>
+                              </template>
+                              <span class="text-xs font-semibold text-slate-600 w-12 text-right" x-text="(r.final_score*100).toFixed(0)+'%'"></span>
+                            </div>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+function app() {
+  return {
+    view: 'dashboard',
+    health: null,
+    provider: '',
+    toast: { show: false, message: '', type: 'success' },
+    modal: { show: false, filename: '', docType: '', text: '' },
+    delConfirm: { show: false, id: '', filename: '' },
+    stats: { total: 0, cvs: 0, jobs: 0 },
+
+    // Documents
+    documents: [], docFilter: null, docsTotal: 0, docsNextCursor: null, docsLoading: false,
+    cvFiles: [], jobFiles: [], uploadingCVs: false, uploadingJobs: false,
+
+    // Matching
+    matchSourceType: 'job', matchSourceDocs: [], matchSourceId: '',
+    matchTopK: 10, matchAnalysis: true, matchLlmWeight: 70,
+    matchLoading: false, matchResults: null, matchExpanded: {},
+
+    // Batch
+    batchSourceType: 'job', batchSourceDocs: [], batchSelectedIds: [],
+    batchTopK: 5, batchAnalysis: true, batchLlmWeight: 70,
+    batchLoading: false, batchResults: null, batchExpanded: {},
+
+    // Settings
+    settingsModal: false,
+    settingsForm: { qdrant_host: 'localhost', qdrant_port: 6333, ollama_host: 'http://localhost:11434' },
+    svcStatus: { qdrant: null, ollama: null, testing: false, saving: false },
+    svcHealth: { qdrant: null, ollama: null },
+
+    navItems: [
+      { id: 'dashboard', label: 'Übersicht', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>' },
+      { id: 'documents', label: 'Dokumente', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>' },
+      { id: 'matching', label: 'Matching', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>' },
+      { id: 'batch', label: 'Batch-Matching', icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>' },
+    ],
+
+    howItWorks: [
+      { title: 'PDFs hochladen', desc: 'CVs und Stellenbeschreibungen als PDF indexieren' },
+      { title: 'Embeddings erstellen', desc: 'KI wandelt Text in semantische Vektoren um' },
+      { title: 'Vektordatenbank', desc: 'Qdrant speichert alle Dokumente persistent' },
+      { title: 'Matching & Analyse', desc: 'Kosinus-Ähnlichkeit + LLM-Detailanalyse' },
+      { title: 'Ranking', desc: 'Gewichtetes Ranking mit transparentem Score' },
+    ],
+
+    async init() {
+      await Promise.all([this.checkHealth(), this.loadStats(), this.checkServices()]);
+    },
+
+    setView(v) {
+      this.view = v;
+      if (v === 'documents') this.loadDocuments(true);
+      if (v === 'matching') this.loadMatchDocs();
+      if (v === 'batch') this.loadBatchDocs();
+    },
+
+    async checkHealth() {
+      try {
+        const r = await fetch('/health');
+        const d = await r.json();
+        this.health = d.status;
+        this.provider = d.provider || '';
+      } catch { this.health = 'error'; }
+    },
+
+    async checkServices() {
+      try {
+        const r = await fetch('/api/v1/health/services');
+        const d = await r.json();
+        this.svcHealth = { qdrant: d.qdrant.ok, ollama: d.ollama.ok };
+      } catch { this.svcHealth = { qdrant: false, ollama: false }; }
+    },
+
+    async loadStats() {
+      try {
+        const [all, cvs, jobs] = await Promise.all([
+          fetch('/api/v1/documents?limit=1').then(r=>r.json()),
+          fetch('/api/v1/documents?type=cv&limit=1').then(r=>r.json()),
+          fetch('/api/v1/documents?type=job&limit=1').then(r=>r.json()),
+        ]);
+        this.stats = { total: all.total, cvs: cvs.total, jobs: jobs.total };
+      } catch {}
+    },
+
+    async loadDocuments(reset = false) {
+      if (reset) { this.documents = []; this.docsNextCursor = null; }
+      this.docsLoading = true;
+      try {
+        let url = `/api/v1/documents?limit=25`;
+        if (this.docFilter) url += `&type=${this.docFilter}`;
+        if (!reset && this.docsNextCursor) url += `&cursor=${encodeURIComponent(this.docsNextCursor)}`;
+        const r = await fetch(url);
+        const d = await r.json();
+        this.documents = reset ? d.items : [...this.documents, ...d.items];
+        this.docsTotal = d.total;
+        this.docsNextCursor = d.next_cursor;
+      } catch { this.showToast('Dokumente konnten nicht geladen werden', 'error'); }
+      this.docsLoading = false;
+    },
+
+    async uploadFiles(type) {
+      const files = type === 'cv' ? this.cvFiles : this.jobFiles;
+      if (!files.length) return;
+      if (type === 'cv') this.uploadingCVs = true; else this.uploadingJobs = true;
+
+      const form = new FormData();
+      files.forEach(f => form.append('files', f));
+      try {
+        const r = await fetch(`/api/v1/${type === 'cv' ? 'cvs' : 'jobs'}/batch`, { method: 'POST', body: form });
+        const d = await r.json();
+        this.showToast(`${d.total} Dokument${d.total !== 1 ? 'e' : ''} erfolgreich indexiert${d.failed.length ? ' · ' + d.failed.length + ' fehlgeschlagen' : ''}`);
+        if (type === 'cv') this.cvFiles = []; else this.jobFiles = [];
+        await this.loadStats();
+        if (this.view === 'documents') await this.loadDocuments(true);
+      } catch { this.showToast('Upload fehlgeschlagen', 'error'); }
+      if (type === 'cv') this.uploadingCVs = false; else this.uploadingJobs = false;
+    },
+
+    handleDrop(e, type) {
+      const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.pdf'));
+      if (type === 'cv') this.cvFiles = files; else this.jobFiles = files;
+    },
+
+    async viewDocument(id, filename, type) {
+      try {
+        const r = await fetch(`/api/v1/documents/${id}`);
+        const d = await r.json();
+        this.modal = { show: true, filename, docType: type, text: d.text };
+      } catch { this.showToast('Dokument konnte nicht geladen werden', 'error'); }
+    },
+
+    async confirmDelete() {
+      const { id, filename } = this.delConfirm;
+      this.delConfirm.show = false;
+      try {
+        await fetch(`/api/v1/documents/${id}`, { method: 'DELETE' });
+        this.showToast(`„${filename}" gelöscht`);
+        this.documents = this.documents.filter(d => d.id !== id);
+        this.docsTotal = Math.max(0, this.docsTotal - 1);
+        await this.loadStats();
+      } catch { this.showToast('Löschen fehlgeschlagen', 'error'); }
+    },
+
+    async loadMatchDocs() {
+      try {
+        const r = await fetch(`/api/v1/documents?type=${this.matchSourceType}&limit=100`);
+        const d = await r.json();
+        this.matchSourceDocs = d.items;
+        this.matchSourceId = '';
+        this.matchResults = null;
+      } catch {}
+    },
+
+    async runMatch() {
+      if (!this.matchSourceId) return;
+      this.matchLoading = true;
+      this.matchResults = null;
+      this.matchExpanded = {};
+      const vectorW = parseFloat(((100 - this.matchLlmWeight) / 100).toFixed(2));
+      const llmW = parseFloat((this.matchLlmWeight / 100).toFixed(2));
+      try {
+        const r = await fetch('/api/v1/match', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            document_id: this.matchSourceId,
+            document_type: this.matchSourceType,
+            top_k: this.matchTopK,
+            include_analysis: this.matchAnalysis,
+            scoring: { vector: vectorW, llm: llmW },
+          }),
+        });
+        if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+        this.matchResults = await r.json();
+      } catch (e) { this.showToast('Matching fehlgeschlagen: ' + e.message, 'error'); }
+      this.matchLoading = false;
+    },
+
+    async loadBatchDocs() {
+      try {
+        const r = await fetch(`/api/v1/documents?type=${this.batchSourceType}&limit=100`);
+        const d = await r.json();
+        this.batchSourceDocs = d.items;
+        this.batchSelectedIds = [];
+        this.batchResults = null;
+      } catch {}
+    },
+
+    async runBatch() {
+      if (!this.batchSelectedIds.length) return;
+      this.batchLoading = true;
+      this.batchResults = null;
+      this.batchExpanded = {};
+      const vectorW = parseFloat(((100 - this.batchLlmWeight) / 100).toFixed(2));
+      const llmW = parseFloat((this.batchLlmWeight / 100).toFixed(2));
+      try {
+        const r = await fetch('/api/v1/match/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            document_ids: this.batchSelectedIds,
+            document_type: this.batchSourceType,
+            top_k: this.batchTopK,
+            include_analysis: this.batchAnalysis,
+            scoring: { vector: vectorW, llm: llmW },
+          }),
+        });
+        if (!r.ok) { const e = await r.json(); throw new Error(e.detail); }
+        this.batchResults = await r.json();
+      } catch (e) { this.showToast('Batch fehlgeschlagen: ' + e.message, 'error'); }
+      this.batchLoading = false;
+    },
+
+    labelClass(label) {
+      const m = { Excellent: 'bg-emerald-100 text-emerald-700', Good: 'bg-blue-100 text-blue-700', Moderate: 'bg-amber-100 text-amber-700', Poor: 'bg-red-100 text-red-700' };
+      return m[label] || 'bg-slate-100 text-slate-600';
+    },
+
+    showToast(message, type = 'success') {
+      this.toast = { show: true, message, type };
+      setTimeout(() => this.toast.show = false, 3500);
+    },
+
+    async openSettings() {
+      try {
+        const r = await fetch('/api/v1/settings');
+        if (r.ok) this.settingsForm = await r.json();
+      } catch {}
+      this.svcStatus = { qdrant: null, ollama: null, testing: false, saving: false };
+      this.settingsModal = true;
+    },
+
+    async testConnection() {
+      this.svcStatus.testing = true;
+      this.svcStatus.qdrant = null;
+      this.svcStatus.ollama = null;
+      try {
+        const r = await fetch('/api/v1/health/services');
+        const d = await r.json();
+        this.svcStatus.qdrant = d.qdrant;
+        this.svcStatus.ollama = d.ollama;
+      } catch {
+        this.svcStatus.qdrant = { ok: false, error: 'API nicht erreichbar' };
+        this.svcStatus.ollama = { ok: false, error: 'API nicht erreichbar' };
+      }
+      this.svcStatus.testing = false;
+    },
+
+    async saveSettings() {
+      this.svcStatus.saving = true;
+      try {
+        const r = await fetch('/api/v1/settings', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.settingsForm),
+        });
+        if (!r.ok) throw new Error();
+        this.showToast('Einstellungen gespeichert');
+        this.settingsModal = false;
+        await this.checkHealth();
+      } catch { this.showToast('Fehler beim Speichern', 'error'); }
+      this.svcStatus.saving = false;
+    },
+  };
+}
+</script>
+</body>
+</html>
